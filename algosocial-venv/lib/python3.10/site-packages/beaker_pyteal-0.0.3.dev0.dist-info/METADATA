@@ -1,0 +1,103 @@
+Metadata-Version: 2.1
+Name: beaker-pyteal
+Version: 0.0.3.dev0
+Summary: A Framework for building PyTeal Applications
+Author-email: Ben Guidarelli <ben@algorand.com>
+License: MIT License        
+        Copyright (c) 2022 Algorand        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.        
+Project-URL: Homepage, https://beaker.algo.xyz
+Project-URL: Bug Tracker, https://github.com/algorand-devrel/beaker/issues
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Programming Language :: Python :: 3.10
+Classifier: License :: OSI Approved :: MIT License
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: py-algorand-sdk (>=1.16.0)
+Requires-Dist: pyteal (>=0.14.0)
+Provides-Extra: docs
+Requires-Dist: Sphinx (==5.0.2) ; extra == 'docs'
+Requires-Dist: sphinx-rtd-theme (==1.0.0) ; extra == 'docs'
+Provides-Extra: tests
+Requires-Dist: black (==22.6.0) ; extra == 'tests'
+Requires-Dist: pytest (==7.1.2) ; extra == 'tests'
+Requires-Dist: flake8 (==4.0.1) ; extra == 'tests'
+Requires-Dist: mypy (==0.971) ; extra == 'tests'
+Requires-Dist: mypy-extensions (==0.4.3) ; extra == 'tests'
+
+Beaker
+------
+<img align="left" src="beaker.png" margin="10px" >
+
+Beaker is a smart contract development framework for [PyTeal](https://github.com/algorand/pyteal) inspired by Flask
+
+
+With Beaker, we build a class that represents our entire application including state and routing.
+
+*Mostly Untested - Expect Breaking Changes* 
+
+
+## Hello, Beaker
+
+
+```py
+from pyteal import *
+from beaker import *
+
+class HelloBeaker(Application):
+    @external
+    def hello(self, name: abi.String, *, output: abi.String):
+        return output.set(Concat(Bytes("Hello, "), name.get()))
+
+if __name__ == "__main__":
+    from algosdk.atomic_transaction_composer import AccountTransactionSigner
+    from beaker import sandbox, client
+
+    app = HelloBeaker()
+
+    addr, secret = sandbox.get_accounts().pop()
+
+    app_client = client.ApplicationClient(
+        sandbox.get_client(), app, signer=AccountTransactionSigner(secret)
+    )
+
+    app_id, app_addr, txid = app_client.create()
+
+    result = app_client.call(app.hello, name="Beaker")
+    print(result.return_value) # Hello, Beaker
+```
+
+## Install
+
+You can install from pip:
+
+`pip install beaker-pyteal`
+
+Or from github directly (no promises on stability): 
+
+`pip install git+https://github.com/algorand-devrel/beaker`
+
+## Use
+
+[Examples](/examples/)
+
+[Docs](https://beaker.algo.xyz)
+
+[TODO](TODO.md)
+
+*Please feel free to file issues/prs*
