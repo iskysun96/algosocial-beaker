@@ -1,10 +1,7 @@
 from typing import Final
 
-
-from algosdk.atomic_transaction_composer import AccountTransactionSigner
-
 from beaker.client import ApplicationClient
-from beaker import ApplicationState, opt_in, sandbox, consts
+from beaker import ApplicationState, internal, opt_in, sandbox, consts
 
 from pyteal import *
 from beaker.application import Application
@@ -60,10 +57,23 @@ class AlgoSocial(Application):
     @create
     def create(self):
         """create application"""
+
         return Seq(
             self.initialize_application_state(),
             self.joined.set(Global.latest_timestamp()),
         )
+
+    @external
+    def initialize(self, txn: abi.PaymentTransaction):
+        """Send Algos to cover Minimum_balance"""
+
+        valid_txn = [
+            txn.get().type_enum() == TxnType.Payment,
+            txn.get().amount() == Global.min_balance(),
+            txn.get().receiver() == self.address,
+        ]
+
+        return Seq(Assert(*valid_txn))
 
     @external(authorize=Authorize.only(Global.creator_address()))
     def set_name(self, new_name: abi.String):
@@ -93,78 +103,48 @@ class AlgoSocial(Application):
     def set_wallet(self, new_wallet: abi.Address):
         return self.wallet.set(new_wallet.get())
 
+    # Donation Features
+
     @external
     def donate(self, txn: abi.PaymentTransaction):
-        valid_payment_txn = And(
+        valid_payment_txn = [
             txn.get().type_enum() == TxnType.Payment,
             # minimum donation 1 Algo
             txn.get().amount() >= consts.Algos(1),
-            txn.get().receiver() == Global.current_application_address(),
-        )
+            txn.get().receiver() == self.address,
+        ]
 
         return Seq(
-            Assert(valid_payment_txn),
+            Assert(*valid_payment_txn),
             self.donation_amt.set(self.donation_amt + txn.get().amount()),
         )
 
+    @external(authorize=Authorize.only(Global.creator_address()))
+    def withdraw(self):
+        return Seq(
+            [
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields(
+                    {
+                        TxnField.type_enum: TxnType.Payment,
+                        TxnField.amount: self.donation_amt - Global.min_txn_fee(),
+                        TxnField.receiver: self.wallet,
+                    }
+                ),
+                InnerTxnBuilder.Submit(),
+                self.donation_amt.set(
+                    self.donation_amt - InnerTxn.amount() - Global.min_txn_fee()
+                ),
+            ]
+        )
 
-# def demo():
-#     client = sandbox.get_client()
+    # Following / Follwer Functionalities
 
-#     accts = sandbox.get_accounts()
-
-#     addr1, sk1 = accts.pop()
-#     signer1 = AccountTransactionSigner(sk1)
-
-#     addr2, sk2 = accts.pop()
-#     signer2 = AccountTransactionSigner(sk2)
-
-#     # Initialize Application from algosocial.py
-#     app = AlgoSocial()
-
-#     # Create an Application client containing both an algod client and my app
-#     app_client = ApplicationClient(client, app)
-
-#     # Create the applicatiion on chain, set the app id for the app client
-#     app_id, app_addr, txid = app_client.create(signer=signer1)
-#     print(f"Created App with id: {app_id} and address addr: {app_addr} in tx: {txid}")
-
-#     app_client1 = app_client.prepare(signer=signer1)
-#     app_client2 = app_client.prepare(signer=signer2)
-
-#     app_client1.call(app.set_name, new_name="Chris Kim")
-#     app_client1.call(app.set_email, new_email="chris.kim@algorand.com")
-#     app_client1.call(app.set_age, new_age=25)
-#     app_client1.call(app.set_wallet, new_wallet=addr1)
-
-#     print(f"Current app state {app_client.get_application_state()}")
-
-#     try:
-#         app_client2.call(app.set_name, new_name="Morty")
-#         app_client2.call(app.set_email, new_email="rick.morty@algorand.com")
-#         app_client2.call(app.set_age, new_age=12)
-#         app_client2.call(app.set_wallet, new_wallet=addr2)
-#     except Exception as e:
-#         print(
-#             "Failed as expected, only addr1 should be authorized to change profile info"
-#         )
-
-#     print(f"Current app state {app_client.get_application_state()}")
-
-#     app_client1.call(app.set_name, new_name="Chris H Kim")
-#     app_client1.call(app.set_email, new_email="chris.kim2@algorand.com")
-#     app_client1.call(app.set_age, new_age=26)
-#     app_client1.call(app.set_wallet, new_wallet=addr2)
-
-#     print(f"Current app state {app_client.get_application_state()}")
-
-#     app_client2.call(
-#         app.donate,
-#     )
+    def follower_optin(self):
+        """when someone want to follow this profile, they opt in to this contract. Follower count goes up by one"""
+        valid_account = []
 
 
 if __name__ == "__main__":
     ca = AlgoSocial()
     print(ca.app_state.schema().__dict__)
-
-    # demo()

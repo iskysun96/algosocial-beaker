@@ -5,6 +5,7 @@ from algosdk.atomic_transaction_composer import *
 from algosdk.future.transaction import *
 from algosdk.v2client.algod import AlgodClient
 from algosdk.encoding import decode_address
+from algosdk.abi import *
 from beaker import client, sandbox
 from beaker.client.application_client import ApplicationClient
 
@@ -26,40 +27,126 @@ def demo():
     app = AlgoSocial()
 
     # Create an Application client containing both an algod client and my app
-    app_client = ApplicationClient(client, app)
+    app_client = ApplicationClient(client, app, signer=signer1)
 
     # Create the applicatiion on chain, set the app id for the app client
-    app_id, app_addr, txid = app_client.create(signer=signer1)
+    app_id, app_addr, txid = app_client.create()
     print(
         f"Created App with id: {app_id} and address addr: {app_addr} in tx: {txid} \n"
     )
-
-    # Creator account. Owner of the social profile
-    app_client1 = app_client.prepare(signer=signer1)
 
     # Fan of the creator. Used to test donation function
     app_client2 = app_client.prepare(signer=signer2)
 
     ##############
+    # Initialize
+    ##############
+
+    params = client.suggested_params()
+    receiver = app_addr
+    amount = 100000
+    signer = AccountTransactionSigner(sk1)
+
+    ptxn = TransactionWithSigner(PaymentTxn(addr1, params, receiver, amount), signer)
+
+    app_client.call(app.initialize, txn=ptxn)
+
+    account_info = client.account_info(app_addr)
+    print(
+        "Social App balance after initialization: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    ##############
     # Create Profile
     ##############
+
+    comp = AtomicTransactionComposer()
 
     intro = "I am an Algorand Developer Advocate."
     twitter = "https://twitter.com/HGKimChris"
 
-    app_client1.call(app.set_name, new_name="Chris Kim")
-    app_client1.call(app.set_tag, new_tag="HGKimChris")
-    app_client1.call(app.set_email, new_email="chris.kim@algorand.com")
-    app_client1.call(app.set_age, new_age=25)
-    app_client1.call(app.set_wallet, new_wallet=addr1)
-    app_client1.call(app.set_intro, new_intro=intro)
-    app_client1.call(app.set_twitter, new_twitter=twitter)
+    comp.add_method_call
 
-    print(f"Current app state {app_client.get_application_state()} \n")
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_name"),
+        addr1,
+        params,
+        signer1,
+        method_args=["Chris Kim"],
+    )
+
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_tag"),
+        addr1,
+        params,
+        signer1,
+        method_args=["HGKimChris"],
+    )
+
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_email"),
+        addr1,
+        params,
+        signer1,
+        method_args=["chris.kim@algorand.com"],
+    )
+
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_age"),
+        addr1,
+        params,
+        signer1,
+        method_args=[25],
+    )
+
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_wallet"),
+        addr1,
+        params,
+        signer1,
+        method_args=[addr1],
+    )
+
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_intro"),
+        addr1,
+        params,
+        signer1,
+        method_args=[intro],
+    )
+
+    comp.add_method_call(
+        app_id,
+        app.contract.get_method_by_name("set_twitter"),
+        addr1,
+        params,
+        signer1,
+        method_args=[twitter],
+    )
+
+    comp.execute(client, 2)
+
+    print("### App state after initial creation ### \n")
+
+    for key in app_client.get_application_state():
+        print(key, "->", app_client.get_application_state()[key])
+
+    print("\n")
 
     #############################
     # Non user App Call Fail Test
     #############################
+
+    print("### Trying to update info with address 2 (Should fail) ### \n")
 
     try:
         app_client2.call(app.set_name, new_name="Morty")
@@ -71,36 +158,183 @@ def demo():
             "Failed as expected, only addr1 should be authorized to change profile info \n"
         )
 
-    print(f"Current app state {app_client.get_application_state()} \n")
+    print(
+        "### App state after update attempt from address 2. (should be the same) ### \n"
+    )
+
+    for key in app_client.get_application_state():
+        print(key, "->", app_client.get_application_state()[key])
+
+    print("\n")
 
     ##########################
     # Profile Data Update Test
     ##########################
 
-    app_client1.call(app.set_name, new_name="Chris H Kim")
-    app_client1.call(app.set_email, new_email="chris.kim2@algorand.com")
-    app_client1.call(app.set_age, new_age=26)
+    app_client.call(app.set_name, new_name="Chris H Kim")
+    app_client.call(app.set_email, new_email="chris.kim2@algorand.com")
+    app_client.call(app.set_age, new_age=26)
 
-    print(f"Current app state {app_client.get_application_state()} \n")
+    print("### App state after update from address 1 ### \n")
+
+    for key in app_client.get_application_state():
+        print(key, "->", app_client.get_application_state()[key])
+
+    account_info = client.account_info(app_addr)
+
+    print("\n")
 
     ##############
     # Donation Test
     ##############
 
-    signer = AccountTransactionSigner(sk2)
+    account_info = client.account_info(addr2)
+    print(
+        "Account 2 balance before donation: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
 
-    params = client.suggested_params()
+    signer = AccountTransactionSigner(sk2)
 
     comp = AtomicTransactionComposer()
 
     receiver = app_addr
-    amount = 1000000
+    amount = 1000000000  # 1000 Algo
 
     ptxn = TransactionWithSigner(PaymentTxn(addr2, params, receiver, amount), signer)
 
     app_client2.call(app.donate, txn=ptxn)
 
-    print(f"Current app state {app_client.get_application_state()} \n")
+    print("Donation completed. \n")
+
+    account_info = client.account_info(addr2)
+    print(
+        "Account 2 balance after donation: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    print("### App state after donation ### \n")
+
+    print("Donation Amount: ", app_client.get_application_state()["donation_amt"])
+
+    account_info = client.account_info(app_addr)
+    print(
+        "Social App balance: {} Algos".format(account_info.get("amount") / 1000000)
+        + "\n"
+    )
+
+    ##############
+    # Withdraw Test
+    ##############
+
+    account_info = client.account_info(addr1)
+    print(
+        "Account 1 balance before withdrawing: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    app_client.call(app.withdraw)
+
+    account_info = client.account_info(addr1)
+    print(
+        "Account 1 balance after withdrawing: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    print("### App State after Withdrawal ### \n")
+
+    print("Donation Amount: ", app_client.get_application_state()["donation_amt"])
+
+    account_info = client.account_info(app_addr)
+    print(
+        "Social App balance: {} Algos".format(account_info.get("amount") / 1000000)
+        + "\n"
+    )
+
+    print("\n")
+
+    ######################
+    # Second Donation Test
+    ######################
+
+    account_info = client.account_info(addr2)
+    print(
+        "Account 2 balance before donation: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    signer = AccountTransactionSigner(sk2)
+
+    comp = AtomicTransactionComposer()
+
+    receiver = app_addr
+    amount = 1000000000  # 1000 Algo
+
+    ptxn = TransactionWithSigner(PaymentTxn(addr2, params, receiver, amount), signer)
+
+    app_client2.call(app.donate, txn=ptxn)
+
+    print("Donation completed. \n")
+
+    account_info = client.account_info(addr2)
+    print(
+        "Account balance 2 after donation: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    print("### App state after donation ### \n")
+    print("Donation Amount: ", app_client.get_application_state()["donation_amt"])
+
+    account_info = client.account_info(app_addr)
+    print(
+        "Social App balance: {} Algos".format(account_info.get("amount") / 1000000)
+        + "\n"
+    )
+
+    ########################################################################################################
+    # Second Withdraw Test (check if min balance and min txn fees are maintained after multiple withdrawals)
+    ########################################################################################################
+
+    account_info = client.account_info(addr1)
+    print(
+        "Account 1 balance before withdrawing: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    app_client.call(app.withdraw)
+
+    account_info = client.account_info(addr1)
+    print(
+        "Account 1 balance after withdrawing: {} Algos".format(
+            account_info.get("amount") / 1000000
+        )
+        + "\n"
+    )
+
+    print("### App State after Withdrawal ### \n")
+    print("Donation Amount: ", app_client.get_application_state()["donation_amt"])
+
+    account_info = client.account_info(app_addr)
+    print(
+        "Social App balance: {} Algos".format(account_info.get("amount") / 1000000)
+        + "\n"
+    )
+
+    print("\n")
 
 
 demo()
